@@ -22,7 +22,7 @@ Command: **sudo iodined -f -c -P password 192.168.1.1 fake-domain.org**
 
 **Setup the DNS Client:**
 
-Configured the client on Ubuntu to connect to the DNS server using iodine.
+Configured the client to connect to the DNS server using iodine.
 
 Command: **sudo iodine -f -P password -T A 192.168.1.1 fake-domain.org**
 
@@ -50,6 +50,7 @@ Method 3: Transferred system log files.
 
 
 **Note:** All documents related to this project are included in the repository for detailed context and instructions.
+
 
 **How to Use:**
 
